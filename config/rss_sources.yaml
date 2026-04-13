@@ -1,0 +1,72 @@
+# RSS 源列表
+# 分类说明：
+#   tech_media - 科技媒体
+#   company_blog - 公司官方博客
+#   vc_newsletter - VC/增长类 newsletter
+#   wechat - 微信公众号（via wechat2rss）
+
+sources:
+  # ── TechCrunch ──
+  - name: TechCrunch 全站
+    url: https://techcrunch.com/feed/
+    category: tech_media
+
+  - name: TechCrunch AI
+    url: https://techcrunch.com/category/ai/feed/
+    category: tech_media
+
+  - name: TechCrunch Startups
+    url: https://techcrunch.com/startups/feed/
+    category: tech_media
+
+  # ── Crunchbase ──
+  - name: Crunchbase News
+    url: https://news.crunchbase.com/feed
+    category: tech_media
+
+  # ── 公司官方 ──
+  - name: OpenAI Blog
+    url: https://openai.com/news/rss.xml
+    category: company_blog
+
+  - name: Google Research Blog
+    url: https://research.google/blog/rss
+    category: company_blog
+
+  # ── VC / 增长 Newsletter ──
+  - name: a16z Newsletter
+    url: https://a16z.com/feed
+    category: vc_newsletter
+
+  - name: "Lenny's Newsletter"
+    url: https://lennysnewsletter.com/feed
+    category: vc_newsletter
+
+  # ── 微信公众号 (wechat2rss on Railway) ──
+  - name: 机器之心
+    url: https://wechat2rss-production-673e.up.railway.app/feed/3073282833.xml
+    category: wechat
+
+  - name: 真格基金
+    url: https://wechat2rss-production-673e.up.railway.app/feed/2394991041.xml
+    category: wechat
+
+  - name: 赛博禅心
+    url: https://wechat2rss-production-673e.up.railway.app/feed/3934419561.xml
+    category: wechat
+
+  - name: 暗涌Waves
+    url: https://wechat2rss-production-673e.up.railway.app/feed/3940324519.xml
+    category: wechat
+
+  - name: 量子位
+    url: https://wechat2rss-production-673e.up.railway.app/feed/3236757533.xml
+    category: wechat
+
+  - name: Founder Park
+    url: https://wechat2rss-production-673e.up.railway.app/feed/3895742803.xml
+    category: wechat
+
+  - name: Z Potentials
+    url: https://wechat2rss-production-673e.up.railway.app/feed/3285810954.xml
+    category: wechat

@@ -1,0 +1,10 @@
+feedparser
+aiohttp
+beautifulsoup4
+openai
+lark-oapi
+pyyaml
+pydantic
+pydantic-settings
+python-dotenv
+tenacity
