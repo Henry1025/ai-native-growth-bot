@@ -70,3 +70,28 @@ sources:
   - name: Z Potentials
     url: https://wechat2rss-production-673e.up.railway.app/feed/3285810954.xml
     category: wechat
+
+  - name: 十字路口Crossing
+    url: https://wechat2rss-production-673e.up.railway.app/feed/3010319264.xml
+    category: wechat
+
+  - name: 数字生命卡兹克
+    url: https://wechat2rss-production-673e.up.railway.app/feed/3223096120.xml
+    category: wechat
+
+  - name: 海外独角兽
+    url: https://wechat2rss-production-673e.up.railway.app/feed/3869640945.xml
+    category: wechat
+
+  # ── Podcast / Newsletter ──
+  - name: Growth Unhinged
+    url: https://www.growthunhinged.com/feed.xml
+    category: vc_newsletter
+
+  - name: The a16z Show (Podcast)
+    url: https://feeds.simplecast.com/JGE3yC0V
+    category: podcast
+
+  - name: Lenny's Podcast
+    url: https://feeds.simplecast.com/7nkfb0wA
+    category: podcast

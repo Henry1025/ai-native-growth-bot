@@ -76,6 +76,14 @@ async def run():
 
     if relevant_count == 0:
         logger.warning("初筛后无相关文章（全部标记为不相关），跳过深度分析。")
+        # 仍然写入日期标题和提示到飞书文档
+        empty_report = {"core_arguments": []}
+        doc_url = await writer.write_report(
+            empty_report,
+            report_date=date.today(),
+            doc_token=settings.feishu_doc_token,
+        )
+        logger.info("无相关文章，已写入空日报占位: %s", doc_url)
         return
 
     # 5. 深度分析（Kimi 2.5）- 传入原始 articles 以便关联原文

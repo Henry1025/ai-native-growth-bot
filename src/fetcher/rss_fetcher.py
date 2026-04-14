@@ -23,8 +23,9 @@ def _parse_time(entry: Any) -> datetime | None:
     for attr in ("published_parsed", "updated_parsed", "created_parsed"):
         t = getattr(entry, attr, None)
         if t:
-            import time
-            ts = time.mktime(t)
+            import calendar
+            # feedparser 的 *_parsed 是 UTC 的 struct_time，用 calendar.timegm 而不是 time.mktime
+            ts = calendar.timegm(t)
             return datetime.fromtimestamp(ts, tz=timezone.utc)
     return None
 
@@ -73,7 +74,11 @@ async def fetch_source(
     recent_entries = []
     for entry in feed.entries:
         pub = _parse_time(entry)
-        if pub is None or pub >= cutoff:
+        if pub is None:
+            title = getattr(entry, "title", "unknown")
+            logger.warning("  文章无发布时间，跳过: %s", title)
+            continue
+        if pub >= cutoff:
             recent_entries.append((entry, pub))
 
     for entry, pub in recent_entries:
