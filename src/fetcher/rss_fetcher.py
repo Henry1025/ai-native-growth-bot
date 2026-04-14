@@ -61,7 +61,7 @@ async def fetch_source(
 
     logger.info("正在抓取 RSS: %s (%s)", name, url)
     try:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
             raw = await resp.read()
         feed = feedparser.parse(raw)
     except Exception as e:

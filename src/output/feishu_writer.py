@@ -74,7 +74,9 @@ class FeishuWriter:
             logger.info("往现有飞书文档追加日报: %s", doc_token)
             blocks = self._json_report_to_blocks(report_data, report_date)
             if blocks:
-                await self._append_blocks(doc_token, blocks)
+                insert_idx = await self._find_insert_index(doc_token)
+                logger.info("插入位置: index=%d（分割线之后）", insert_idx)
+                await self._append_blocks(doc_token, blocks, index=insert_idx)
             url = f"https://docs.feishu.cn/docx/{doc_token}"
             logger.info("飞书文档追加完成: %s", url)
             return url
@@ -183,8 +185,8 @@ class FeishuWriter:
             raise RuntimeError(f"创建飞书文档失败: code={resp.code} msg={resp.msg}")
         return resp.data.document.document_id
 
-    async def _doc_has_date_heading(self, doc_token: str, date_str: str) -> bool:
-        """检查文档中是否已包含指定日期的日报标题，防止重复写入。"""
+    async def _get_doc_blocks(self, doc_token: str) -> list[dict]:
+        """获取文档的所有 block 列表。"""
         try:
             req = lark.BaseRequest.builder() \
                 .http_method(lark.HttpMethod.GET) \
@@ -193,25 +195,51 @@ class FeishuWriter:
                 .build()
             resp = await asyncio.to_thread(self._client.request, req)
             if not resp.success():
-                # 查询失败时保守地允许写入
-                return False
+                return []
             import json as _json
             data = _json.loads(resp.raw.content)
-            items = data.get("data", {}).get("items", [])
-            heading_text = f"AI 广告增长日报 · {date_str}"
-            for block in items:
-                # heading1 block_type=3, heading2 block_type=4, text block_type=2
-                for key in ("heading1", "heading2", "text"):
-                    content = block.get(key, {})
-                    elements = content.get("elements", [])
-                    for el in elements:
-                        text = el.get("text_run", {}).get("content", "")
-                        if heading_text in text:
-                            return True
-            return False
+            return data.get("data", {}).get("items", [])
         except Exception as e:
-            logger.warning("检查文档重复写入时出错（保守允许写入）: %s", e)
-            return False
+            logger.warning("获取文档 blocks 失败: %s", e)
+            return []
+
+    async def _doc_has_date_heading(self, doc_token: str, date_str: str) -> bool:
+        """检查文档中是否已包含指定日期的日报标题，防止重复写入。"""
+        items = await self._get_doc_blocks(doc_token)
+        heading_text = f"AI 广告增长日报 · {date_str}"
+        for block in items:
+            for key in ("heading1", "heading2", "text"):
+                content = block.get(key, {})
+                elements = content.get("elements", [])
+                for el in elements:
+                    text = el.get("text_run", {}).get("content", "")
+                    if heading_text in text:
+                        return True
+        return False
+
+    async def _find_insert_index(self, doc_token: str) -> int:
+        """找到分割线（divider, block_type=22）之后的插入位置。
+        返回值是在文档直接子块中的索引（CreateDocumentBlockChildrenRequest 的 index 参数）。
+        如果找不到分割线，默认插入到文档末尾。"""
+        items = await self._get_doc_blocks(doc_token)
+        # 只取文档的直接子块（parent_id == doc_token），忽略嵌套块
+        doc_children = [b for b in items if b.get("parent_id") == doc_token]
+        for i, block in enumerate(doc_children):
+            if block.get("block_type") == 22:  # divider
+                # 分割线后面可能有一个空行，跳过它
+                next_idx = i + 1
+                if next_idx < len(doc_children):
+                    next_block = doc_children[next_idx]
+                    if next_block.get("block_type") == 2:
+                        text_content = "".join(
+                            el.get("text_run", {}).get("content", "")
+                            for el in next_block.get("text", {}).get("elements", [])
+                        )
+                        if not text_content.strip():
+                            return next_idx + 1
+                return next_idx
+        # 没有分割线则追加到文档末尾
+        return len(doc_children)
 
     async def _append_blocks(self, doc_token: str, blocks: list[Block], index: int = 0):
         """在文档指定位置插入 blocks。index=0 表示插入到文档最前面。"""
