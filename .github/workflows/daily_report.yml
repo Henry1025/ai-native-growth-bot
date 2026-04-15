@@ -2,8 +2,8 @@ name: AI 新闻日报
 
 on:
   schedule:
-    # UTC 03:00 = 北京时间 11:00
-    - cron: "0 3 * * *"
+    # UTC 04:00 = 北京时间 12:00
+    - cron: "0 4 * * *"
   workflow_dispatch:  # 支持手动触发
 
 jobs:

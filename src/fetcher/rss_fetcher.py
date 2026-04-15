@@ -1,6 +1,6 @@
 """
 通用 RSS 抓取：feedparser 解析 + aiohttp 并行抓取全文
-只保留最近 N 小时内的文章
+支持按时间窗口筛选文章
 """
 import asyncio
 import logging
@@ -51,10 +51,11 @@ async def _fetch_full_content(session: aiohttp.ClientSession, url: str, max_char
 async def fetch_source(
     session: aiohttp.ClientSession,
     source: dict,
-    cutoff: datetime,
+    start_time: datetime,
+    end_time: datetime | None,
     max_chars: int,
 ) -> list[dict]:
-    """抓取单个 RSS 源，返回最近 cutoff 之后的文章列表。"""
+    """抓取单个 RSS 源，返回指定时间窗口内的文章列表。"""
     name = source["name"]
     url = source["url"]
     category = source.get("category", "")
@@ -78,7 +79,7 @@ async def fetch_source(
             title = getattr(entry, "title", "unknown")
             logger.warning("  文章无发布时间，跳过: %s", title)
             continue
-        if pub >= cutoff:
+        if pub >= start_time and (end_time is None or pub < end_time):
             recent_entries.append((entry, pub))
 
     for entry, pub in recent_entries:
@@ -116,22 +117,44 @@ async def fetch_source(
     return articles
 
 
-async def fetch_all(recent_hours: int = 24, max_chars: int = 3000) -> list[dict]:
-    """并行抓取所有 RSS 源，返回合并后的文章列表。"""
+async def fetch_all_between(
+    start_time: datetime,
+    end_time: datetime | None = None,
+    max_chars: int = 3000,
+) -> list[dict]:
+    """并行抓取所有 RSS 源，返回时间窗口内的文章列表。"""
     sources = load_sources()
     if not sources:
         logger.warning("rss_sources.yaml 中 sources 为空，无文章可抓取。")
         return []
 
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=recent_hours)
-    logger.info("开始抓取 %d 个 RSS 源，截止时间: %s", len(sources), cutoff.isoformat())
+    if end_time:
+        logger.info(
+            "开始抓取 %d 个 RSS 源，时间窗口: [%s, %s)",
+            len(sources),
+            start_time.isoformat(),
+            end_time.isoformat(),
+        )
+    else:
+        logger.info(
+            "开始抓取 %d 个 RSS 源，起始时间: %s",
+            len(sources),
+            start_time.isoformat(),
+        )
 
     connector = aiohttp.TCPConnector(limit=10)
     headers = {"User-Agent": "Mozilla/5.0 (compatible; ai-news-bot/1.0)"}
     async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
-        tasks = [fetch_source(session, s, cutoff, max_chars) for s in sources]
+        tasks = [fetch_source(session, s, start_time, end_time, max_chars) for s in sources]
         results = await asyncio.gather(*tasks)
 
     all_articles = [a for batch in results for a in batch]
     logger.info("全部抓取完毕，共 %d 篇文章", len(all_articles))
     return all_articles
+
+
+async def fetch_all(recent_hours: int = 24, max_chars: int = 3000) -> list[dict]:
+    """并行抓取最近 N 小时内的所有文章。"""
+    end_time = datetime.now(tz=timezone.utc)
+    start_time = end_time - timedelta(hours=recent_hours)
+    return await fetch_all_between(start_time, end_time=end_time, max_chars=max_chars)

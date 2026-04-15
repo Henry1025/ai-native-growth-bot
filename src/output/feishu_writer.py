@@ -74,7 +74,7 @@ class FeishuWriter:
             logger.info("往现有飞书文档追加日报: %s", doc_token)
             blocks = self._json_report_to_blocks(report_data, report_date)
             if blocks:
-                insert_idx = await self._find_insert_index(doc_token)
+                insert_idx = await self._find_insert_index(doc_token, report_date=report_date)
                 logger.info("插入位置: index=%d（分割线之后）", insert_idx)
                 await self._append_blocks(doc_token, blocks, index=insert_idx)
             url = f"https://docs.feishu.cn/docx/{doc_token}"
@@ -217,28 +217,58 @@ class FeishuWriter:
                         return True
         return False
 
-    async def _find_insert_index(self, doc_token: str) -> int:
-        """找到分割线（divider, block_type=22）之后的插入位置。
-        返回值是在文档直接子块中的索引（CreateDocumentBlockChildrenRequest 的 index 参数）。
-        如果找不到分割线，默认插入到文档末尾。"""
+    @staticmethod
+    def _extract_heading_date(block: dict) -> date | None:
+        if block.get("block_type") != 3:
+            return None
+        elements = block.get("heading1", {}).get("elements", [])
+        text = "".join(el.get("text_run", {}).get("content", "") for el in elements)
+        m = re.search(r"AI 广告增长日报 · (\d{4}-\d{2}-\d{2})", text)
+        if not m:
+            return None
+        try:
+            return date.fromisoformat(m.group(1))
+        except ValueError:
+            return None
+
+    async def _find_insert_index(self, doc_token: str, report_date: date | None = None) -> int:
+        """找到日报在文档直接子块中的插入位置。
+
+        默认插在分割线之后的日报区顶部；如果指定 report_date，则按日期倒序插入，
+        保证补历史日报时不会打乱已有顺序。
+        """
         items = await self._get_doc_blocks(doc_token)
         # 只取文档的直接子块（parent_id == doc_token），忽略嵌套块
         doc_children = [b for b in items if b.get("parent_id") == doc_token]
+        divider_idx = None
+
         for i, block in enumerate(doc_children):
-            if block.get("block_type") == 22:  # divider
-                # 分割线后面可能有一个空行，跳过它
-                next_idx = i + 1
-                if next_idx < len(doc_children):
-                    next_block = doc_children[next_idx]
-                    if next_block.get("block_type") == 2:
-                        text_content = "".join(
-                            el.get("text_run", {}).get("content", "")
-                            for el in next_block.get("text", {}).get("elements", [])
-                        )
-                        if not text_content.strip():
-                            return next_idx + 1
-                return next_idx
-        # 没有分割线则追加到文档末尾
+            if block.get("block_type") == 22:
+                divider_idx = i
+                break
+
+        if divider_idx is None:
+            content_start_idx = 0
+        else:
+            content_start_idx = divider_idx + 1
+            if content_start_idx < len(doc_children):
+                next_block = doc_children[content_start_idx]
+                if next_block.get("block_type") == 2:
+                    text_content = "".join(
+                        el.get("text_run", {}).get("content", "")
+                        for el in next_block.get("text", {}).get("elements", [])
+                    )
+                    if not text_content.strip():
+                        content_start_idx += 1
+
+        if report_date is None:
+            return content_start_idx if divider_idx is not None else len(doc_children)
+
+        for i in range(content_start_idx, len(doc_children)):
+            heading_date = self._extract_heading_date(doc_children[i])
+            if heading_date and heading_date < report_date:
+                return i
+
         return len(doc_children)
 
     async def _append_blocks(self, doc_token: str, blocks: list[Block], index: int = 0):
