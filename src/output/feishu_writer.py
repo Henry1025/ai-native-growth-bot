@@ -232,6 +232,11 @@ class FeishuWriter:
         """日报段落标题只保留日期，兼容旧格式解析逻辑。"""
         return report_date.strftime("%Y-%m-%d")
 
+    @staticmethod
+    def _normalize_sub_point(text: str) -> str:
+        """清理模型输出里低价值的编号前缀。"""
+        return re.sub(r"^\s*事实\s*\d+\s*[：:]\s*", "", text).strip()
+
     async def _find_insert_index(self, doc_token: str, report_date: date | None = None) -> int:
         """找到日报在文档直接子块中的插入位置。
 
@@ -441,7 +446,7 @@ class FeishuWriter:
             blocks.append(self._make_heading2(f"{idx}. {argument}"))
 
             for sp in sub_points:
-                blocks.append(self._make_text(f"• {sp}"))
+                blocks.append(self._make_text(f"• {self._normalize_sub_point(sp)}"))
 
             # 来源链接紧跟在每条新闻后面
             for src in sources:
