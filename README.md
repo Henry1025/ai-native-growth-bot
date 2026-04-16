@@ -45,7 +45,7 @@ python src/main.py
 
 ## 定时运行
 
-GitHub Actions: 每天 UTC 04:00（北京时间 12:00）自动运行。
+GitHub Actions: 每天 UTC 03:50（北京时间 11:50）自动运行。
 也可在 Actions 页面手动触发（`workflow_dispatch`）。
 
 在 GitHub 仓库 Settings → Secrets 中配置：
