@@ -206,15 +206,10 @@ class FeishuWriter:
     async def _doc_has_date_heading(self, doc_token: str, date_str: str) -> bool:
         """检查文档中是否已包含指定日期的日报标题，防止重复写入。"""
         items = await self._get_doc_blocks(doc_token)
-        heading_text = f"AI 广告增长日报 · {date_str}"
         for block in items:
-            for key in ("heading1", "heading2", "text"):
-                content = block.get(key, {})
-                elements = content.get("elements", [])
-                for el in elements:
-                    text = el.get("text_run", {}).get("content", "")
-                    if heading_text in text:
-                        return True
+            heading_date = self._extract_heading_date(block)
+            if heading_date and heading_date.isoformat() == date_str:
+                return True
         return False
 
     @staticmethod
@@ -223,13 +218,19 @@ class FeishuWriter:
             return None
         elements = block.get("heading1", {}).get("elements", [])
         text = "".join(el.get("text_run", {}).get("content", "") for el in elements)
-        m = re.search(r"AI 广告增长日报 · (\d{4}-\d{2}-\d{2})", text)
+        text = text.strip()
+        m = re.search(r"(?:AI 广告增长日报 · )?(\d{4}-\d{2}-\d{2})$", text)
         if not m:
             return None
         try:
             return date.fromisoformat(m.group(1))
         except ValueError:
             return None
+
+    @staticmethod
+    def _format_report_heading(report_date: date) -> str:
+        """日报段落标题只保留日期，兼容旧格式解析逻辑。"""
+        return report_date.strftime("%Y-%m-%d")
 
     async def _find_insert_index(self, doc_token: str, report_date: date | None = None) -> int:
         """找到日报在文档直接子块中的插入位置。
@@ -425,7 +426,7 @@ class FeishuWriter:
     def _json_report_to_blocks(self, report_data: dict, report_date: date) -> list[Block]:
         blocks: list[Block] = []
 
-        blocks.append(self._make_heading1(f"AI 广告增长日报 · {report_date.strftime('%Y-%m-%d')}"))
+        blocks.append(self._make_heading1(self._format_report_heading(report_date)))
 
         core_arguments = report_data.get("core_arguments", [])
         if not core_arguments:
