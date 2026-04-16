@@ -10,6 +10,8 @@ from datetime import date
 
 import lark_oapi as lark
 from lark_oapi.api.docx.v1 import (
+    BatchDeleteDocumentBlockChildrenRequest,
+    BatchDeleteDocumentBlockChildrenRequestBody,
     CreateDocumentRequest,
     CreateDocumentRequestBody,
     CreateDocumentBlockChildrenRequest,
@@ -276,6 +278,50 @@ class FeishuWriter:
                 return i
 
         return len(doc_children)
+
+    async def _find_report_range(self, doc_token: str, report_date: date) -> tuple[int, int] | None:
+        """找到某一天日报在文档直接子块中的 [start, end) 范围。"""
+        items = await self._get_doc_blocks(doc_token)
+        doc_children = [b for b in items if b.get("parent_id") == doc_token]
+        start_idx = None
+
+        for i, block in enumerate(doc_children):
+            heading_date = self._extract_heading_date(block)
+            if heading_date and heading_date == report_date:
+                start_idx = i
+                break
+
+        if start_idx is None:
+            return None
+
+        end_idx = len(doc_children)
+        for i in range(start_idx + 1, len(doc_children)):
+            if self._extract_heading_date(doc_children[i]):
+                end_idx = i
+                break
+        return start_idx, end_idx
+
+    async def delete_report(self, doc_token: str, report_date: date) -> bool:
+        """删除指定日期的整段日报。返回是否实际删除。"""
+        report_range = await self._find_report_range(doc_token, report_date)
+        if report_range is None:
+            return False
+
+        start_idx, end_idx = report_range
+        req = BatchDeleteDocumentBlockChildrenRequest.builder() \
+            .document_id(doc_token) \
+            .block_id(doc_token) \
+            .request_body(
+                BatchDeleteDocumentBlockChildrenRequestBody.builder()
+                .start_index(start_idx)
+                .end_index(end_idx)
+                .build()
+            ).build()
+
+        resp = await asyncio.to_thread(self._client.docx.v1.document_block_children.batch_delete, req)
+        if not resp.success():
+            raise RuntimeError(f"删除日报 Block 失败: code={resp.code} msg={resp.msg}")
+        return True
 
     async def _append_blocks(self, doc_token: str, blocks: list[Block], index: int = 0):
         """在文档指定位置插入 blocks。index=0 表示插入到文档最前面。"""
