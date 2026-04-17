@@ -2,9 +2,9 @@ name: AI 新闻日报
 
 on:
   schedule:
-    # UTC 03:43 = 北京时间 11:43; UTC 04:07 = 北京时间 12:07
-    - cron: "43 3 * * *"
-    - cron: "7 4 * * *"
+    # UTC 00:53 = 北京时间 08:53; UTC 01:07 = 北京时间 09:07
+    - cron: "53 0 * * *"
+    - cron: "7 1 * * *"
   workflow_dispatch:  # 支持手动触发
 
 jobs:
