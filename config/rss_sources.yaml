@@ -24,6 +24,10 @@ sources:
     url: https://news.crunchbase.com/feed
     category: tech_media
 
+  - name: 36Kr
+    url: https://36kr.com/feed
+    category: tech_media
+
   # ── 公司官方 ──
   - name: OpenAI Blog
     url: https://openai.com/news/rss.xml
