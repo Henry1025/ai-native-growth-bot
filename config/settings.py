@@ -20,7 +20,11 @@ class Settings(BaseSettings):
     # Pipeline settings
     article_max_chars: int = 3000        # 单篇内容最大字符数
     recent_hours: int = 24               # 只取最近 N 小时的文章
-    screening_batch_size: int = 20       # 每次送给 LLM 初筛的文章数
+    rss_lookback_hours: int = 72         # RSS 抓取回看窗口，用于补偿信息源延迟更新
+    screening_batch_size: int = 10       # 每次送给 LLM 初筛的文章数
+    screening_max_completion_tokens: int = 8192
+    analysis_max_completion_tokens: int = 16384
+    kimi_timeout_seconds: float = 240
 
     class Config:
         env_file = ".env"

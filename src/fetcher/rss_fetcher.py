@@ -78,9 +78,11 @@ async def _fetch_full_content(session: aiohttp.ClientSession, url: str, max_char
 async def fetch_source(
     session: aiohttp.ClientSession,
     source: dict,
-    start_time: datetime,
-    end_time: datetime | None,
+    fetch_start_time: datetime,
+    fetch_end_time: datetime | None,
     max_chars: int,
+    report_start_time: datetime | None = None,
+    report_end_time: datetime | None = None,
 ) -> list[dict]:
     name = source["name"]
     url = source["url"]
@@ -98,7 +100,7 @@ async def fetch_source(
         if published_at is None:
             logger.warning("Skipping item without publish time from %s: %s", name, getattr(entry, "title", "unknown"))
             continue
-        if published_at >= start_time and (end_time is None or published_at < end_time):
+        if published_at >= fetch_start_time and (fetch_end_time is None or published_at < fetch_end_time):
             recent_entries.append((entry, published_at))
 
     async def _enrich(entry: Any, published_at: datetime) -> dict:
@@ -121,7 +123,15 @@ async def fetch_source(
 
     results = await asyncio.gather(*[_enrich(entry, published_at) for entry, published_at in recent_entries])
     articles = [item for item in results if item["title"]]
-    logger.info("%s: fetched %d articles in window", name, len(articles))
+    if report_start_time is not None:
+        articles = [
+            item
+            for item in articles
+            if datetime.fromisoformat(item["published_time"]) >= report_start_time
+            and (report_end_time is None or datetime.fromisoformat(item["published_time"]) < report_end_time)
+        ]
+
+    logger.info("%s: fetched %d articles in report window", name, len(articles))
     return articles
 
 
@@ -129,35 +139,81 @@ async def fetch_all_between(
     start_time: datetime,
     end_time: datetime | None = None,
     max_chars: int = 3000,
+    lookback_hours: int | None = None,
 ) -> list[dict]:
     sources = load_sources()
     if not sources:
         logger.warning("rss_sources.yaml has no sources configured.")
         return []
 
+    fetch_start_time = start_time
+    fetch_end_time = end_time
+    if lookback_hours is not None:
+        fetch_start_time = start_time - timedelta(hours=max(0, lookback_hours - 24))
+        fetch_end_time = datetime.now(tz=timezone.utc)
+
     if end_time:
         logger.info(
-            "Fetching %d RSS sources for window [%s, %s)",
+            "Fetching %d RSS sources for report window [%s, %s), RSS fetch window [%s, %s)",
             len(sources),
             start_time.isoformat(),
             end_time.isoformat(),
+            fetch_start_time.isoformat(),
+            fetch_end_time.isoformat() if fetch_end_time else "open",
         )
     else:
-        logger.info("Fetching %d RSS sources since %s", len(sources), start_time.isoformat())
+        logger.info("Fetching %d RSS sources since %s", len(sources), fetch_start_time.isoformat())
 
     connector = aiohttp.TCPConnector(limit=8)
     headers = {"User-Agent": "Mozilla/5.0 (compatible; ai-news-bot/1.0)"}
     async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
         results = await asyncio.gather(
-            *[fetch_source(session, source, start_time, end_time, max_chars) for source in sources]
+            *[
+                fetch_source(
+                    session,
+                    source,
+                    fetch_start_time,
+                    fetch_end_time,
+                    max_chars,
+                    report_start_time=start_time if lookback_hours is not None else None,
+                    report_end_time=end_time,
+                )
+                for source in sources
+            ]
         )
 
     all_articles = [article for batch in results for article in batch]
-    logger.info("Finished fetching RSS sources: %d articles total", len(all_articles))
+    all_articles = dedup_by_url(all_articles)
+    logger.info("Finished fetching RSS sources: %d articles total after URL dedup", len(all_articles))
     return all_articles
 
 
-async def fetch_all(recent_hours: int = 24, max_chars: int = 3000) -> list[dict]:
+async def fetch_all(
+    recent_hours: int = 24,
+    max_chars: int = 3000,
+    lookback_hours: int | None = None,
+) -> list[dict]:
     end_time = datetime.now(tz=timezone.utc)
     start_time = end_time - timedelta(hours=recent_hours)
-    return await fetch_all_between(start_time, end_time=end_time, max_chars=max_chars)
+    return await fetch_all_between(
+        start_time,
+        end_time=end_time,
+        max_chars=max_chars,
+        lookback_hours=lookback_hours,
+    )
+
+
+def dedup_by_url(articles: list[dict]) -> list[dict]:
+    """Deduplicate exact URLs before title-level deduplication."""
+    seen: set[str] = set()
+    deduped: list[dict] = []
+
+    for article in articles:
+        url = (article.get("url") or "").strip()
+        key = url or f'{article.get("source", "")}:{article.get("title", "")}'
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(article)
+
+    return deduped

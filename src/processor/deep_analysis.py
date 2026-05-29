@@ -5,6 +5,7 @@ import logging
 from datetime import date
 
 from ..llm.kimi_client import KimiClient
+from .screening import is_report_relevant
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,8 @@ async def generate_report(
         report_date = date.today()
     date_str = report_date.strftime("%Y-%m-%d")
 
-    # 过滤掉"不相关"标签的文章，只送相关内容给深度分析
-    relevant = [a for a in screened if a.get("tag") != "不相关"]
+    # Only score >= 4 candidates are sent to deep analysis; score=3 remains in the sheet.
+    relevant = [a for a in screened if is_report_relevant(a)]
     logger.info(
         "开始生成日报，日期: %s，相关文章: %d（总共 %d，过滤不相关 %d）",
         date_str, len(relevant), len(screened), len(screened) - len(relevant),

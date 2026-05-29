@@ -9,6 +9,7 @@ import re
 from datetime import date
 
 import lark_oapi as lark
+from src.processor.screening import get_score, is_relevant, is_report_relevant, is_screening_failed
 from lark_oapi.api.docx.v1 import (
     BatchDeleteDocumentBlockChildrenRequest,
     BatchDeleteDocumentBlockChildrenRequestBody,
@@ -119,12 +120,14 @@ class FeishuWriter:
             report_date = date.today()
 
         if spreadsheet_token:
-            # 往现有表格写入
+            # 往现有表格的日期工作表写入，避免覆盖其他日期的初筛结果。
             logger.info("往现有飞书表格写入初筛结果: %s", spreadsheet_token)
-            sheet_id = await self._get_first_sheet_id(spreadsheet_token)
-            # 先清空表格（写入空数据）
+            sheet_id = await self._get_or_create_sheet_id(
+                spreadsheet_token,
+                report_date.strftime("%Y-%m-%d"),
+            )
+            # 只清空当天工作表，不影响其他日期。
             await self._clear_spreadsheet_data(spreadsheet_token, sheet_id)
-            # 写入新数据
             rows = self._prepare_screening_rows(screened)
             await self._write_spreadsheet_data(spreadsheet_token, sheet_id, rows)
             url = f"https://docs.feishu.cn/sheets/{spreadsheet_token}"
@@ -149,25 +152,91 @@ class FeishuWriter:
             return url
 
     def _prepare_screening_rows(self, screened: list[dict]) -> list[list[str]]:
-        rows = [["标签", "标题", "摘要", "原文链接", "相关数量统计"]]
+        rows = [[
+            "召回链路",
+            "状态",
+            "日报",
+            "候选",
+            "分数",
+            "置信度",
+            "标签",
+            "标题",
+            "摘要",
+            "增长机制",
+            "可行动启发",
+            "来源",
+            "发布时间",
+            "原文链接",
+            "统计",
+        ]]
 
-        relevant_count = 0
+        report_relevant_count = 0
+        candidate_count = 0
         irrelevant_count = 0
+        failed_count = 0
 
         for item in screened:
             tag = item.get("tag", "")
             title = item.get("title", "")
             summary = item.get("summary", "")
             url = item.get("url", "")
+            route = item.get("screening_route", "")
+            score = get_score(item)
+            confidence = item.get("confidence", "")
+            growth_mechanism = item.get("growth_mechanism", "")
+            actionable_angle = item.get("actionable_angle", "")
+            source = item.get("source", "")
+            published_time = item.get("published_time", "")
+            is_candidate = is_relevant(item)
+            in_report = is_report_relevant(item)
+            failed = is_screening_failed(item)
+            status = "待重试" if failed else "已初筛"
+            score_text = "" if failed else str(score)
 
-            if tag == "不相关":
-                irrelevant_count += 1
+            if in_report:
+                report_relevant_count += 1
+            if failed:
+                failed_count += 1
+            elif is_candidate:
+                candidate_count += 1
             else:
-                relevant_count += 1
+                irrelevant_count += 1
 
-            rows.append([tag, title, summary, url, ""])
+            rows.append([
+                route,
+                status,
+                "Y" if in_report else "",
+                "Y" if is_candidate else "",
+                score_text,
+                confidence,
+                tag,
+                title,
+                summary,
+                growth_mechanism,
+                actionable_angle,
+                source,
+                published_time,
+                url,
+                "",
+            ])
 
-        rows.append(["", "", "", "", f"相关: {relevant_count} / 不相关: {irrelevant_count}"])
+        rows.append([
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            f"日报: {report_relevant_count} / 候选: {candidate_count} / 待重试: {failed_count} / 不相关: {irrelevant_count}",
+        ])
         return rows
 
     # ------------------------------------------------------------------
@@ -325,19 +394,21 @@ class FeishuWriter:
 
     async def _append_blocks(self, doc_token: str, blocks: list[Block], index: int = 0):
         """在文档指定位置插入 blocks。index=0 表示插入到文档最前面。"""
-        req = CreateDocumentBlockChildrenRequest.builder() \
-            .document_id(doc_token) \
-            .block_id(doc_token) \
-            .request_body(
-                CreateDocumentBlockChildrenRequestBody.builder()
-                .children(blocks)
-                .index(index)
-                .build()
-            ).build()
+        for offset in range(0, len(blocks), 30):
+            chunk = blocks[offset : offset + 30]
+            req = CreateDocumentBlockChildrenRequest.builder() \
+                .document_id(doc_token) \
+                .block_id(doc_token) \
+                .request_body(
+                    CreateDocumentBlockChildrenRequestBody.builder()
+                    .children(chunk)
+                    .index(index + offset)
+                    .build()
+                ).build()
 
-        resp = await asyncio.to_thread(self._client.docx.v1.document_block_children.create, req)
-        if not resp.success():
-            raise RuntimeError(f"插入 Block 失败: code={resp.code} msg={resp.msg}")
+            resp = await asyncio.to_thread(self._client.docx.v1.document_block_children.create, req)
+            if not resp.success():
+                raise RuntimeError(f"插入 Block 失败: code={resp.code} msg={resp.msg}")
 
     # ------------------------------------------------------------------
     # 内部方法：表格操作
@@ -357,6 +428,12 @@ class FeishuWriter:
         return resp.data.spreadsheet.spreadsheet_token
 
     async def _get_first_sheet_id(self, spreadsheet_token: str) -> str:
+        sheets = await self._get_sheets(spreadsheet_token)
+        if not sheets:
+            raise RuntimeError("表格中没有 sheet")
+        return self._sheet_attr(sheets[0], "sheet_id")
+
+    async def _get_sheets(self, spreadsheet_token: str) -> list:
         req = QuerySpreadsheetSheetRequest.builder() \
             .spreadsheet_token(spreadsheet_token) \
             .build()
@@ -364,10 +441,47 @@ class FeishuWriter:
         resp = await asyncio.to_thread(self._client.sheets.v3.spreadsheet_sheet.query, req)
         if not resp.success():
             raise RuntimeError(f"查询表格 sheet 失败: code={resp.code} msg={resp.msg}")
-        sheets = resp.data.sheets
-        if not sheets:
-            raise RuntimeError("表格中没有 sheet")
-        return sheets[0].sheet_id
+        return resp.data.sheets or []
+
+    @staticmethod
+    def _sheet_attr(sheet, attr: str):
+        if isinstance(sheet, dict):
+            return sheet.get(attr)
+        return getattr(sheet, attr, None)
+
+    async def _get_or_create_sheet_id(self, spreadsheet_token: str, title: str) -> str:
+        sheets = await self._get_sheets(spreadsheet_token)
+        for sheet in sheets:
+            if self._sheet_attr(sheet, "title") == title:
+                return self._sheet_attr(sheet, "sheet_id")
+
+        req = lark.BaseRequest.builder() \
+            .http_method(lark.HttpMethod.POST) \
+            .uri(f"/open-apis/sheets/v2/spreadsheets/{spreadsheet_token}/sheets_batch_update") \
+            .token_types({lark.AccessTokenType.TENANT}) \
+            .body({
+                "requests": [
+                    {
+                        "addSheet": {
+                            "properties": {
+                                "title": title,
+                                "index": 0,
+                            }
+                        }
+                    }
+                ]
+            }) \
+            .build()
+
+        resp = await asyncio.to_thread(self._client.request, req)
+        if not resp.success():
+            raise RuntimeError(f"创建日期工作表失败: code={resp.code} msg={resp.msg}")
+
+        sheets = await self._get_sheets(spreadsheet_token)
+        for sheet in sheets:
+            if self._sheet_attr(sheet, "title") == title:
+                return self._sheet_attr(sheet, "sheet_id")
+        raise RuntimeError(f"创建日期工作表后未找到 sheet: {title}")
 
     async def _clear_spreadsheet_data(self, spreadsheet_token: str, sheet_id: str):
         """清空表格数据（写入空值到 A1:Z1000 范围）。"""
@@ -485,23 +599,35 @@ class FeishuWriter:
             return blocks
 
         for idx, arg in enumerate(core_arguments, 1):
-            argument = arg.get("argument", "")
-            sub_points = arg.get("sub_points", [])
-            sources = arg.get("sources", [])
-
-            blocks.append(self._make_heading2(f"{idx}. {argument}"))
-
-            for sp in sub_points:
-                blocks.append(self._make_text(f"• {self._normalize_sub_point(sp)}"))
-
-            # 来源链接紧跟在每条新闻后面
-            for src in sources:
-                src_title = src.get("title", "来源")
-                src_url = src.get("url", "")
-                if src_url:
-                    blocks.append(self._make_text(f"来源：{src_title} {src_url}"))
+            self._append_argument_blocks(blocks, arg, idx)
 
         return blocks
+
+    def _append_argument_blocks(
+        self,
+        blocks: list[Block],
+        arg: dict,
+        idx: int,
+    ) -> None:
+        """Append one report argument to Feishu blocks."""
+        argument = arg.get("argument", "")
+        section = arg.get("section", "")
+        sub_points = arg.get("sub_points", [])
+        sources = arg.get("sources", [])
+
+        blocks.append(self._make_heading2(f"{idx}. {argument}"))
+        if section:
+            blocks.append(self._make_text(f"标签：{section}"))
+
+        for sp in sub_points:
+            blocks.append(self._make_text(f"• {self._normalize_sub_point(sp)}"))
+
+        # 来源链接紧跟在每条新闻后面
+        for src in sources:
+            src_title = src.get("title", "来源")
+            src_url = src.get("url", "")
+            if src_url:
+                blocks.append(self._make_text(f"来源：{src_title} {src_url}"))
 
     # ------------------------------------------------------------------
     # Block 构建辅助
@@ -509,6 +635,10 @@ class FeishuWriter:
 
     @staticmethod
     def _text_run(text: str, bold: bool = False) -> TextElement:
+        text = str(text)
+        text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
+        if len(text) > 1800:
+            text = text[:1800] + "…"
         tr_builder = TextRunBuilder().content(text)
         if bold:
             style = TextElementStyleBuilder().bold(True).build()
@@ -530,6 +660,8 @@ class FeishuWriter:
         return BlockBuilder().block_type(3).heading1(text_obj).build()
 
     def _make_heading2(self, text: str) -> Block:
+        if len(text) > 220:
+            text = text[:220] + "…"
         text_obj = self._make_text_obj(text, bold=True)
         return BlockBuilder().block_type(4).heading2(text_obj).build()
 

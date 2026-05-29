@@ -25,7 +25,7 @@ from src.llm.kimi_client import KimiClient
 from src.output.feishu_writer import FeishuWriter
 from src.processor.dedup import dedup_articles
 from src.processor.deep_analysis import generate_report
-from src.processor.screening import screen_articles
+from src.processor.screening import is_report_relevant, screen_articles
 
 logging.basicConfig(
     level=logging.INFO,
@@ -92,6 +92,7 @@ async def _run_for_date(
         start_utc,
         end_time=end_utc,
         max_chars=settings.article_max_chars,
+        lookback_hours=settings.rss_lookback_hours,
     )
     if not articles:
         logger.warning("%s 未抓取到任何文章，写入空日报", report_date.isoformat())
@@ -108,7 +109,7 @@ async def _run_for_date(
         articles,
         batch_size=settings.screening_batch_size,
     )
-    relevant = [a for a in screened if a.get("tag") != "不相关"]
+    relevant = [a for a in screened if is_report_relevant(a)]
 
     if not relevant:
         await writer.write_report(
@@ -156,6 +157,9 @@ async def main():
         base_url=settings.moonshot_base_url,
         screening_model=settings.screening_model,
         analysis_model=settings.analysis_model,
+        screening_max_completion_tokens=settings.screening_max_completion_tokens,
+        analysis_max_completion_tokens=settings.analysis_max_completion_tokens,
+        timeout_seconds=settings.kimi_timeout_seconds,
     )
     writer = FeishuWriter(
         app_id=settings.feishu_app_id,

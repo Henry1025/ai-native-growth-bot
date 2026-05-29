@@ -84,15 +84,74 @@ def _extract_json(raw: str):
     return None
 
 
+def _failed_screening_items(articles: list[dict], route_name: str, reason: str) -> list[dict]:
+    """Keep failed screening batches visible in downstream sheets."""
+    failed_items: list[dict] = []
+    for article in articles:
+        failed_items.append(
+            {
+                "url": article.get("url", ""),
+                "title": article.get("title", ""),
+                "tag": "初筛失败",
+                "score": 0,
+                "summary": f"LLM 初筛失败，待重试（{reason}）",
+                "growth_mechanism": "",
+                "actionable_angle": "",
+                "confidence": "low",
+                "screening_status": "failed",
+                "screening_error": reason,
+                "failed_route": route_name,
+                "source": article.get("source", ""),
+                "published_time": article.get("published_time", ""),
+                "category": article.get("category", ""),
+            }
+        )
+    return failed_items
+
+
 class KimiClient:
-    def __init__(self, api_key: str, base_url: str, screening_model: str, analysis_model: str):
-        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        screening_model: str,
+        analysis_model: str,
+        screening_max_completion_tokens: int = 8192,
+        analysis_max_completion_tokens: int = 16384,
+        timeout_seconds: float = 240,
+    ):
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            max_retries=0,
+        )
         self.screening_model = screening_model
         self.analysis_model = analysis_model
+        self.screening_max_completion_tokens = screening_max_completion_tokens
+        self.analysis_max_completion_tokens = analysis_max_completion_tokens
+        self.timeout_seconds = timeout_seconds
         self._screening_prompt = (PROMPTS_DIR / "screening.txt").read_text(encoding="utf-8")
+        self._startup_screening_prompt = (PROMPTS_DIR / "screening_startup.txt").read_text(encoding="utf-8")
         self._analysis_prompt = (
             (PROMPTS_DIR / "analysis.txt").read_text(encoding="utf-8") + ANALYSIS_TONE_NOTE
         )
+
+    @staticmethod
+    def _thinking_body(model: str, *, disabled: bool) -> dict | None:
+        if not model.startswith("kimi-k2"):
+            return None
+        return {"thinking": {"type": "disabled" if disabled else "enabled"}}
+
+    async def _collect_stream_text(self, **kwargs) -> str:
+        stream = await self._client.chat.completions.create(**kwargs)
+        parts: list[str] = []
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            content = getattr(chunk.choices[0].delta, "content", None)
+            if content:
+                parts.append(content)
+        return "".join(parts).strip()
 
     @retry(
         stop=stop_after_attempt(3),
@@ -102,12 +161,14 @@ class KimiClient:
         reraise=True,
     )
     async def _call_screening_api(self, messages: list[dict]) -> str:
-        response = await self._client.chat.completions.create(
+        return await self._collect_stream_text(
             model=self.screening_model,
             messages=messages,
-            temperature=1,
+            max_completion_tokens=self.screening_max_completion_tokens,
+            stream=True,
+            timeout=self.timeout_seconds,
+            extra_body=self._thinking_body(self.screening_model, disabled=True),
         )
-        return response.choices[0].message.content.strip()
 
     @retry(
         stop=stop_after_attempt(3),
@@ -117,36 +178,66 @@ class KimiClient:
         reraise=True,
     )
     async def _call_analysis_api(self, messages: list[dict]) -> str:
-        response = await self._client.chat.completions.create(
+        return await self._collect_stream_text(
             model=self.analysis_model,
             messages=messages,
-            temperature=1,
+            max_completion_tokens=self.analysis_max_completion_tokens,
+            stream=True,
+            timeout=self.timeout_seconds,
+            extra_body=self._thinking_body(self.analysis_model, disabled=False),
         )
-        return response.choices[0].message.content.strip()
 
-    async def screen_articles(self, articles: list[dict]) -> list[dict]:
+    async def _screen_articles_with_prompt(
+        self,
+        articles: list[dict],
+        prompt: str,
+        route_name: str,
+    ) -> list[dict]:
         if not articles:
             return []
 
         messages = [
-            {"role": "system", "content": self._screening_prompt},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": json.dumps(articles, ensure_ascii=False, indent=2)},
         ]
-        logger.info("Calling Kimi screening for %d articles with model %s", len(articles), self.screening_model)
+        logger.info(
+            "Calling Kimi %s screening for %d articles with model %s",
+            route_name,
+            len(articles),
+            self.screening_model,
+        )
 
         try:
             raw = await self._call_screening_api(messages)
         except (APITimeoutError, APIConnectionError, APIError) as exc:
-            logger.error("Screening API failed after retries: %s", exc)
-            return []
+            logger.error("%s screening API failed after retries: %s", route_name, exc)
+            return _failed_screening_items(articles, route_name, str(exc))
 
         result = _extract_json(raw)
         if result is None:
-            logger.error("Failed to parse screening output: %s", raw[:500])
-            return []
+            logger.error("Failed to parse %s screening output: %s", route_name, raw[:500])
+            return _failed_screening_items(articles, route_name, "parse_error")
 
-        logger.info("Screening returned %d rows", len(result))
+        if not isinstance(result, list):
+            logger.error("Unexpected %s screening output type: %s", route_name, type(result).__name__)
+            return _failed_screening_items(articles, route_name, "unexpected_output_type")
+
+        logger.info("%s screening returned %d rows", route_name, len(result))
         return result
+
+    async def screen_articles(self, articles: list[dict]) -> list[dict]:
+        return await self._screen_articles_with_prompt(
+            articles,
+            self._screening_prompt,
+            route_name="legacy",
+        )
+
+    async def screen_startup_articles(self, articles: list[dict]) -> list[dict]:
+        return await self._screen_articles_with_prompt(
+            articles,
+            self._startup_screening_prompt,
+            route_name="startup",
+        )
 
     async def analyze_articles(self, screened: list[dict], date_str: str) -> dict:
         if not screened:

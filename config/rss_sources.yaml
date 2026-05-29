@@ -11,19 +11,21 @@ sources:
     url: https://techcrunch.com/feed/
     category: tech_media
 
-  - name: TechCrunch AI
-    url: https://techcrunch.com/category/ai/feed/
-    category: tech_media
-
-  - name: TechCrunch Startups
-    url: https://techcrunch.com/startups/feed/
-    category: tech_media
-
   # ── Crunchbase ──
   - name: Crunchbase News
     url: https://news.crunchbase.com/feed
     category: tech_media
+  - name: WIRED AI
+    url: https://www.wired.com/feed/tag/ai/latest/rss
+    category: tech_media
 
+  - name: The Verge
+    url: https://www.theverge.com/rss/index.xml
+    category: tech_media
+
+  - name: MIT Technology Review
+    url: https://www.technologyreview.com/stories.rss
+    category: tech_media
   # ── 公司官方 ──
   - name: OpenAI Blog
     url: https://openai.com/news/rss.xml
@@ -35,7 +37,7 @@ sources:
 
   # ── VC / 增长 Newsletter ──
   - name: a16z Newsletter
-    url: https://a16z.com/feed
+    url: https://feeds.simplecast.com/Hb_IuXOo
     category: vc_newsletter
 
   - name: "Lenny's Newsletter"
@@ -83,15 +85,29 @@ sources:
     url: https://wechat2rss-production-673e.up.railway.app/feed/3869640945.xml
     category: wechat
 
-  # ── Podcast / Newsletter ──
-  - name: Growth Unhinged
-    url: https://www.growthunhinged.com/feed.xml
-    category: vc_newsletter
+  - name: 微信源 3291550570
+    url: https://wechat2rss-production-673e.up.railway.app/feed/3291550570.xml
+    category: wechat
 
+  # ── Podcast / Newsletter ──
   - name: The a16z Show (Podcast)
     url: https://feeds.simplecast.com/JGE3yC0V
     category: podcast
 
-  - name: Lenny's Podcast
-    url: https://feeds.simplecast.com/7nkfb0wA
-    category: podcast
+  # ── Startup / AI Product Launch ──
+  - name: Product Hunt
+    url: https://www.producthunt.com/feed?category=undefined
+    category: startup_launch
+
+  - name: Ben's Bites
+    url: https://www.bensbites.com/feed
+    category: ai_product_launch
+
+  # ── AdTech / MarTech / Search Marketing ──
+  - name: MarTech Series
+    url: https://martechseries.com/feed/
+    category: martech
+
+  - name: AdExchanger
+    url: https://www.adexchanger.com/feed/
+    category: adtech

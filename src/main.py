@@ -23,7 +23,7 @@ from src.llm.kimi_client import KimiClient
 from src.output.feishu_writer import FeishuWriter
 from src.processor.dedup import dedup_articles
 from src.processor.deep_analysis import generate_report
-from src.processor.screening import screen_articles
+from src.processor.screening import is_relevant, is_report_relevant, is_screening_failed, screen_articles
 
 
 logging.basicConfig(
@@ -52,6 +52,7 @@ async def run():
     articles = await fetch_all(
         recent_hours=settings.recent_hours,
         max_chars=settings.article_max_chars,
+        lookback_hours=settings.rss_lookback_hours,
     )
     if not articles:
         logger.warning("No articles fetched; exiting.")
@@ -64,17 +65,25 @@ async def run():
         base_url=settings.moonshot_base_url,
         screening_model=settings.screening_model,
         analysis_model=settings.analysis_model,
+        screening_max_completion_tokens=settings.screening_max_completion_tokens,
+        analysis_max_completion_tokens=settings.analysis_max_completion_tokens,
+        timeout_seconds=settings.kimi_timeout_seconds,
     )
     screened = await screen_articles(
         kimi,
         articles,
         batch_size=settings.screening_batch_size,
     )
-    relevant_count = sum(1 for item in screened if item.get("tag") != "不相关")
+    candidate_count = sum(1 for item in screened if is_relevant(item))
+    report_relevant_count = sum(1 for item in screened if is_report_relevant(item))
+    failed_count = sum(1 for item in screened if is_screening_failed(item))
+    irrelevant_count = len(screened) - candidate_count - failed_count
     logger.info(
-        "Screening complete: relevant=%d irrelevant=%d",
-        relevant_count,
-        len(screened) - relevant_count,
+        "Screening complete: candidates=%d report_relevant=%d failed=%d irrelevant=%d",
+        candidate_count,
+        report_relevant_count,
+        failed_count,
+        irrelevant_count,
     )
 
     writer = FeishuWriter(
@@ -88,8 +97,8 @@ async def run():
     )
     logger.info("Screening sheet updated: %s", sheet_url)
 
-    if relevant_count == 0:
-        logger.warning("No relevant articles after screening; writing empty daily report.")
+    if report_relevant_count == 0:
+        logger.warning("No score>=4 articles after screening; writing empty daily report.")
         await _replace_today_report_if_needed(writer, date.today())
         doc_url = await writer.write_report(
             {"core_arguments": []},
