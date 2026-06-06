@@ -30,3 +30,9 @@ Thumbs.db
 
 # 日志
 *.log
+
+# Local-only launchers and probe dumps
+logs/
+run_bot.bat
+tmp_*.json
+tmp*.json
