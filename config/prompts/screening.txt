@@ -34,6 +34,13 @@
   - 使用 MCP/API/自然语言连接广告账户，完成查数、诊断、调预算、改素材、生成报告、自动 AB test。
   - 例：广告主用 agent 监控 ROAS，下调低效广告组，生成新素材并自动上线测试。
 
+- AI skill marketplace / Growth workflow marketplace / Agent skill store
+  - 围绕广告投放、营销增长、商家运营、销售转化的 AI skills / agents / workflows / templates / playbooks 聚合平台。
+  - 平台把原本需要人工完成的投广任务拆成可复用 skill，例如：账户诊断、campaign setup、预算建议、creative scoring、素材生成、受众扩展、商品页优化、GEO/AEO 内容优化、lead scoring、CRM reactivation、churn prevention、日报生成、AB test 设计。
+  - 重点关注这类 marketplace 如何降低广告主/商家/SMB 的 setup friction，让非专业用户也能完成增长任务，并通过 skill 使用频次、模板复用、第三方开发者生态或平台推荐形成新的增长入口。
+  - 如果文章讨论类似 AI agent store / skill marketplace / workflow marketplace / template marketplace / MCP skill registry / vertical agent marketplace，且 skills 明确服务广告、营销、销售、商家增长或投放自动化，应标记为 AI_NATIVE_GROWTH_STRATEGY。
+  - 例：某平台推出广告主 AI skill marketplace，聚合“生成首个 campaign”“诊断低效广告组”“生成高转化素材”“识别流失广告主”等 skills，帮助 SMB 从不会投放转向持续优化。
+
 - Creative automation / Performance creative
   - AI 生成广告素材、商品图、视频、UGC 脚本、landing page、文案、标题、CTA，并明确服务广告投放、commerce、转化或增长。
   - Creative testing、DCO、素材表现预测、素材疲劳检测、批量素材生成。
@@ -61,6 +68,7 @@
 - SEO 文章，但明确讨论 AI Overviews / answer engine / LLM citation，而不是传统关键词排名。
 - AI 内容生成，但明确用于广告主增长、commerce creative、campaign conversion。
 - 平台产品更新没有直接数据，但明显改变广告主创建广告、生成素材、优化投放的工作流。
+- 通用 agent marketplace / skill store，如果文章虽未直接提 TikTok Ads，但明确展示了“把复杂业务流程拆成可复用 AI skills”的产品机制，并且可迁移到广告投放、SMB onboarding、营销自动化或增长运营，可标记 score=3。
 
 ## 标签 2：AI_GROWTH_CASE
 定义：文章讲述一个成熟公司、知名公司、直接/间接竞品或高参考价值公司如何用 AI 解决具体增长问题。重点是“案例中的增长杠杆”，不是公司本身是不是 AI 公司。
@@ -106,6 +114,7 @@
 - 普通融资新闻、估值新闻、榜单新闻，未披露增长机制、市场打法或产品增长用途。
 - 普通 AI 图片/视频/设计/内容工具，未明确用于广告素材、营销素材、转化或 commerce。
 - 普通 SEO、内容营销、搜索排名文章，未明确涉及 AI search / answer engine / AI Overviews / ChatGPT Search / Perplexity。
+- 通用插件商店、GPT store、agent marketplace、prompt marketplace，如果只服务泛办公、编程、娱乐、个人效率，未连接广告、营销、销售、商家运营、增长或投放任务。
 - 泛 AI 行业趋势评论，缺少具体公司、具体机制、具体数据或可迁移打法。
 - 开发者工具、代码生成、工程实践，除非文章讨论该工具本身的增长机制或它直接服务营销/广告增长。
 - 公司内部用 AI 提效的泛案例，除非提效对象是增长、营销、广告、商家运营、销售转化或用户生命周期。
@@ -132,6 +141,11 @@
 - “AI search / SEO”
   - 传统 SEO，tag=不相关。
   - 面向 LLM answer、AI Overviews、Perplexity、ChatGPT Search 的可见性、引用、推荐，才相关。
+
+- “AI skill marketplace / agent store”
+  - 如果只是通用 agent/plugin/prompt 集合，tag=不相关。
+  - 如果 skills 明确服务广告投放、营销自动化、销售转化、商家运营、SMB onboarding、creative production、campaign optimization，tag=AI_NATIVE_GROWTH_STRATEGY。
+  - 如果文章披露 marketplace 如何通过模板、skill 复用、第三方开发者、推荐分发、usage-based pricing 或 task completion 形成增长飞轮，可给 score=4-5。
 
 ## 评分规则
 请为每篇文章输出 score：
