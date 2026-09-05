@@ -37,7 +37,7 @@ class FailureSafetyTests(unittest.IsolatedAsyncioTestCase):
                 await client.analyze_articles([{'url': 'https://example.com'}], '2026-09-01')
 
     async def test_failed_screening_never_touches_feishu(self):
-        with patch.object(main, 'fetch_all', AsyncMock(return_value=[{'url': 'https://example.com', 'title': 'news'}])), patch.object(main, 'screen_articles', AsyncMock(return_value=[{'screening_status': 'failed', 'score': 0}])), patch.object(main, 'FeishuWriter') as writer:
+        with patch.object(main, 'archive'), patch.object(main, 'fetch_all', AsyncMock(return_value=[{'url': 'https://example.com', 'title': 'news'}])), patch.object(main, 'screen_articles', AsyncMock(return_value=[{'screening_status': 'failed', 'score': 0}])), patch.object(main, 'FeishuWriter') as writer:
             with self.assertRaises(RuntimeError):
                 await main.run()
             writer.assert_not_called()
