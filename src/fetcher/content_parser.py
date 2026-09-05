@@ -12,6 +12,17 @@ def html_to_text(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript", "iframe"]):
         tag.decompose()
+    # Full pages often contain thousands of characters of navigation before
+    # the story. Extract the article body before applying the length budget.
+    for selector in ("[itemprop='articleBody']", ".td-post-content", ".wp-block-post-content", ".entry-content", "#js_content", "article", "main"):
+        candidates = soup.select(selector)
+        if candidates:
+            body = max(candidates, key=lambda node: len(node.get_text()))
+            if len(body.get_text(strip=True)) >= 200:
+                soup = body
+                break
+    for tag in soup.select('nav, header, footer, aside, form'):
+        tag.decompose()
     text = soup.get_text(separator=" ", strip=True)
     return _clean_text(text)
 

@@ -57,6 +57,7 @@ class FeishuWriter:
         report_data: dict,
         report_date: date | None = None,
         doc_token: str | None = None,
+        replace_existing: bool = False,
     ) -> str:
         """
         将日报写入飞书文档。
@@ -71,6 +72,8 @@ class FeishuWriter:
             date_str = report_date.strftime('%Y-%m-%d')
             already_written = await self._doc_has_date_heading(doc_token, date_str)
             if already_written:
+                if replace_existing:
+                    return await self.replace_report(report_data, report_date, doc_token)
                 logger.warning("飞书文档已包含 %s 的日报，跳过重复写入", date_str)
                 url = f"https://docs.feishu.cn/docx/{doc_token}"
                 return url
@@ -258,21 +261,54 @@ class FeishuWriter:
 
     async def _get_doc_blocks(self, doc_token: str) -> list[dict]:
         """获取文档的所有 block 列表。"""
-        try:
+        items = []
+        page_token = None
+        while True:
+            from urllib.parse import urlencode
+            query = {"page_size": 500}
+            if page_token:
+                query["page_token"] = page_token
             req = lark.BaseRequest.builder() \
                 .http_method(lark.HttpMethod.GET) \
-                .uri(f"/open-apis/docx/v1/documents/{doc_token}/blocks") \
+                .uri(f"/open-apis/docx/v1/documents/{doc_token}/blocks?{urlencode(query)}") \
                 .token_types({lark.AccessTokenType.TENANT}) \
                 .build()
             resp = await asyncio.to_thread(self._client.request, req)
             if not resp.success():
-                return []
+                raise RuntimeError(f"Cannot read document: {resp.code} {resp.msg}")
             import json as _json
             data = _json.loads(resp.raw.content)
-            return data.get("data", {}).get("items", [])
-        except Exception as e:
-            logger.warning("获取文档 blocks 失败: %s", e)
-            return []
+            payload = data["data"]
+            items.extend(payload.get("items", []))
+            if not payload.get("has_more"):
+                return items
+            next_page = payload.get("page_token")
+            if not next_page or next_page == page_token:
+                raise RuntimeError("Invalid document pagination")
+            page_token = next_page
+
+    async def replace_report(self, report_data: dict, report_date: date, doc_token: str) -> str:
+        """Insert the complete replacement before removing the previous section."""
+        report_range = await self._find_report_range(doc_token, report_date)
+        if report_range is None:
+            return await self.write_report(report_data, report_date, doc_token)
+        start, end = report_range
+        old = [b for b in await self._get_doc_blocks(doc_token) if b.get("parent_id") == doc_token][start:end]
+        blocks = self._json_report_to_blocks(report_data, report_date)
+        if not blocks:
+            raise RuntimeError("Refusing an empty replacement")
+        await self._append_blocks(doc_token, blocks, index=start)
+        current = [b for b in await self._get_doc_blocks(doc_token) if b.get("parent_id") == doc_token]
+        offset = start + len(blocks)
+        if [b['block_id'] for b in current[offset:offset + len(old)]] != [b['block_id'] for b in old]:
+            raise RuntimeError("Document changed during replacement; previous report retained")
+        req = BatchDeleteDocumentBlockChildrenRequest.builder().document_id(doc_token).block_id(doc_token).request_body(
+            BatchDeleteDocumentBlockChildrenRequestBody.builder().start_index(offset).end_index(offset + len(old)).build()
+        ).build()
+        resp = await asyncio.to_thread(self._client.docx.v1.document_block_children.batch_delete, req)
+        if not resp.success():
+            raise RuntimeError(f"Replacement inserted but old section retained: {resp.code} {resp.msg}")
+        return f"https://docs.feishu.cn/docx/{doc_token}"
 
     async def _doc_has_date_heading(self, doc_token: str, date_str: str) -> bool:
         """检查文档中是否已包含指定日期的日报标题，防止重复写入。"""

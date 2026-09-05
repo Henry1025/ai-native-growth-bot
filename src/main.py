@@ -4,6 +4,7 @@ fetch RSS -> dedup -> screen -> write screening sheet -> analyze -> write report
 """
 
 import asyncio
+import json
 import logging
 import sys
 from datetime import date
@@ -34,14 +35,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def _replace_today_report_if_needed(writer: FeishuWriter, report_date: date) -> None:
-    """Keep the Feishu doc aligned with the latest rerun output for the same day."""
-    if not settings.feishu_doc_token:
-        return
-
-    replaced = await writer.delete_report(settings.feishu_doc_token, report_date)
-    if replaced:
-        logger.info("Deleted existing report section for %s before rewriting", report_date.isoformat())
+def archive(stage: str, report_date: date, data) -> None:
+    folder = ROOT / "artifacts"
+    folder.mkdir(exist_ok=True)
+    (folder / f"{report_date}-{stage}.json").write_text(
+        json.dumps(data, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+    )
 
 
 async def run():
@@ -56,10 +55,10 @@ async def run():
         lookback_hours=settings.rss_lookback_hours,
     )
     if not articles:
-        logger.warning("No articles fetched; exiting.")
-        return
+        raise RuntimeError("No articles fetched; report not updated")
 
     articles = dedup_articles(articles)
+    archive("articles", report_date, articles)
 
     kimi = KimiClient(
         api_key=settings.moonshot_api_key,
@@ -78,6 +77,7 @@ async def run():
     candidate_count = sum(1 for item in screened if is_relevant(item))
     report_relevant_count = sum(1 for item in screened if is_report_relevant(item))
     failed_count = sum(1 for item in screened if is_screening_failed(item))
+    archive("screened", report_date, screened)
     irrelevant_count = len(screened) - candidate_count - failed_count
     logger.info(
         "Screening complete: candidates=%d report_relevant=%d failed=%d irrelevant=%d",
@@ -103,7 +103,6 @@ async def run():
 
     if report_relevant_count == 0:
         logger.warning("No score>=4 articles after screening; writing empty daily report.")
-        await _replace_today_report_if_needed(writer, report_date)
         doc_url = await writer.write_report(
             {"core_arguments": []},
             report_date=report_date,
@@ -118,12 +117,13 @@ async def run():
         articles,
         report_date=report_date,
     )
+    archive("report", report_date, report_data)
 
-    await _replace_today_report_if_needed(writer, report_date)
     doc_url = await writer.write_report(
         report_data,
         report_date=report_date,
         doc_token=settings.feishu_doc_token,
+        replace_existing=True,
     )
 
     logger.info("Daily report written: %s", doc_url)

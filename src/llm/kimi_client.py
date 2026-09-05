@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import httpx
 from pathlib import Path
 
 from openai import AsyncOpenAI, APIConnectionError, APIError, APITimeoutError
@@ -21,7 +22,7 @@ ANALYSIS_TONE_NOTE = (
 
 def _is_retryable_error(exception: Exception) -> bool:
     """Retry network timeouts, connection errors, 429s, and 5xx responses."""
-    if isinstance(exception, (APITimeoutError, APIConnectionError)):
+    if isinstance(exception, (APITimeoutError, APIConnectionError, httpx.TransportError)):
         return True
 
     if isinstance(exception, APIError):
@@ -223,7 +224,9 @@ class KimiClient:
             return _failed_screening_items(articles, route_name, "unexpected_output_type")
 
         logger.info("%s screening returned %d rows", route_name, len(result))
-        if len(result) != len(articles):
+        if (len(result) != len(articles)
+                or any(not isinstance(item, dict) for item in result)
+                or {item.get('url') for item in result} != {item.get('url') for item in articles}):
             logger.error("%s screening returned %d rows for %d articles", route_name, len(result), len(articles))
             return _failed_screening_items(articles, route_name, "incomplete_output")
         return result
@@ -277,6 +280,15 @@ class KimiClient:
         if not isinstance(result, dict) or not isinstance(result.get("core_arguments"), list):
             logger.error("Failed to parse analysis output: %s", raw[:500])
             raise RuntimeError("Analysis returned invalid JSON shape")
+
+        if not result['core_arguments']:
+            raise RuntimeError("Analysis returned no arguments for selected articles")
+        allowed_urls = {item.get('url') for item in screened}
+        for argument in result['core_arguments']:
+            if not isinstance(argument, dict) or not argument.get('argument') or not argument.get('sub_points') or not argument.get('sources'):
+                raise RuntimeError("Analysis returned an incomplete argument")
+            if any(source.get('url') not in allowed_urls for source in argument['sources']):
+                raise RuntimeError("Analysis returned an unknown source URL")
 
         logger.info("Analysis produced %d core arguments", len(result.get("core_arguments", [])))
         return result

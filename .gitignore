@@ -36,3 +36,4 @@ logs/
 run_bot.bat
 tmp_*.json
 tmp*.json
+artifacts/

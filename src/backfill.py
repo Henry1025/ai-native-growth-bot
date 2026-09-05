@@ -6,6 +6,7 @@
 import argparse
 import asyncio
 import logging
+import json
 import sys
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -25,7 +26,7 @@ from src.llm.kimi_client import KimiClient
 from src.output.feishu_writer import FeishuWriter
 from src.processor.dedup import dedup_articles
 from src.processor.deep_analysis import generate_report
-from src.processor.screening import is_report_relevant, screen_articles
+from src.processor.screening import is_report_relevant, is_screening_failed, screen_articles
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +40,8 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="回填历史日报到飞书文档")
     parser.add_argument("--start-date", required=True, help="开始日期，格式 YYYY-MM-DD")
     parser.add_argument("--end-date", required=True, help="结束日期，格式 YYYY-MM-DD")
+    parser.add_argument("--articles-dir", type=Path, help="读取 YYYY-MM-DD-articles.json 历史归档，避免依赖当前 RSS")
+    parser.add_argument("--replace-existing", action="store_true", help="生成成功后安全替换指定日期已有日报")
     parser.add_argument(
         "--timezone",
         default="Asia/Shanghai",
@@ -79,6 +82,8 @@ async def _run_for_date(
     writer: FeishuWriter,
     tz_name: str,
     run_hour: int,
+    articles_dir: Path | None = None,
+    replace_existing: bool = False,
 ):
     start_utc, end_utc = _window_for_report(report_date, tz_name, run_hour)
     logger.info(
@@ -88,20 +93,17 @@ async def _run_for_date(
         end_utc.isoformat(),
     )
 
-    articles = await fetch_all_between(
-        start_utc,
-        end_time=end_utc,
-        max_chars=settings.article_max_chars,
-        lookback_hours=settings.rss_lookback_hours,
-    )
-    if not articles:
-        logger.warning("%s 未抓取到任何文章，写入空日报", report_date.isoformat())
-        await writer.write_report(
-            {"core_arguments": []},
-            report_date=report_date,
-            doc_token=settings.feishu_doc_token,
+    if articles_dir:
+        articles = json.loads((articles_dir / f"{report_date}-articles.json").read_text(encoding="utf-8"))
+    else:
+        articles = await fetch_all_between(
+            start_utc,
+            end_time=end_utc,
+            max_chars=settings.article_max_chars,
+            lookback_hours=settings.rss_lookback_hours,
         )
-        return {"date": report_date.isoformat(), "fetched": 0, "screened": 0, "relevant": 0}
+    if not articles:
+        raise RuntimeError(f"{report_date}: no historical articles available; recover archived inputs first")
 
     articles = dedup_articles(articles)
     screened = await screen_articles(
@@ -110,6 +112,8 @@ async def _run_for_date(
         batch_size=settings.screening_batch_size,
     )
     relevant = [a for a in screened if is_report_relevant(a)]
+    if any(is_screening_failed(a) for a in screened):
+        raise RuntimeError(f"{report_date}: screening failed; existing report preserved")
 
     if not relevant:
         await writer.write_report(
@@ -135,6 +139,7 @@ async def _run_for_date(
         report_data,
         report_date=report_date,
         doc_token=settings.feishu_doc_token,
+        replace_existing=replace_existing,
     )
     logger.info("%s 回填完成，相关文章 %d", report_date.isoformat(), len(relevant))
     return {
@@ -174,6 +179,8 @@ async def main():
             writer,
             tz_name=args.timezone,
             run_hour=args.run_hour,
+            articles_dir=args.articles_dir,
+            replace_existing=args.replace_existing,
         )
         summaries.append(summary)
 

@@ -1,5 +1,5 @@
 """
-调用 Kimi K 2.0 初筛文章，输出结构化 JSON
+调用 Kimi K2.6 初筛文章，输出结构化 JSON
 支持分批处理，防止单次请求 token 过多
 """
 import asyncio
