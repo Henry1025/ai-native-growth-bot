@@ -49,6 +49,7 @@ async def run():
     logger.info("AI growth report bot started")
     logger.info("=" * 60)
 
+    report_date = date.today()
     articles = await fetch_all(
         recent_hours=settings.recent_hours,
         max_chars=settings.article_max_chars,
@@ -86,23 +87,26 @@ async def run():
         irrelevant_count,
     )
 
+    if failed_count:
+        raise RuntimeError(f"Screening failed for {failed_count}/{len(screened)} articles; refusing to publish a report")
+
     writer = FeishuWriter(
         app_id=settings.feishu_app_id,
         app_secret=settings.feishu_app_secret,
     )
     sheet_url = await writer.write_screening_results(
         screened,
-        report_date=date.today(),
+        report_date=report_date,
         spreadsheet_token=settings.feishu_sheet_token,
     )
     logger.info("Screening sheet updated: %s", sheet_url)
 
     if report_relevant_count == 0:
         logger.warning("No score>=4 articles after screening; writing empty daily report.")
-        await _replace_today_report_if_needed(writer, date.today())
+        await _replace_today_report_if_needed(writer, report_date)
         doc_url = await writer.write_report(
             {"core_arguments": []},
-            report_date=date.today(),
+            report_date=report_date,
             doc_token=settings.feishu_doc_token,
         )
         logger.info("Empty report written: %s", doc_url)
@@ -112,13 +116,13 @@ async def run():
         kimi,
         screened,
         articles,
-        report_date=date.today(),
+        report_date=report_date,
     )
 
-    await _replace_today_report_if_needed(writer, date.today())
+    await _replace_today_report_if_needed(writer, report_date)
     doc_url = await writer.write_report(
         report_data,
-        report_date=date.today(),
+        report_date=report_date,
         doc_token=settings.feishu_doc_token,
     )
 

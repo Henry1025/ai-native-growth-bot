@@ -8,8 +8,8 @@ class Settings(BaseSettings):
     moonshot_base_url: str = "https://api.moonshot.cn/v1"
 
     # Model names
-    screening_model: str = "kimi-k2.5"  # Kimi K2.5，判断力更强，确保不错过高价值文章
-    analysis_model: str = "kimi-k2.5"               # Kimi K2.5，最强，适合深度分析
+    screening_model: str = "kimi-k2.6"
+    analysis_model: str = "kimi-k2.6"
 
     # Feishu / Lark
     feishu_app_id: str = Field(..., env="FEISHU_APP_ID")

@@ -209,7 +209,7 @@ class KimiClient:
 
         try:
             raw = await self._call_screening_api(messages)
-        except (APITimeoutError, APIConnectionError, APIError) as exc:
+        except Exception as exc:
             logger.error("%s screening API failed after retries: %s", route_name, exc)
             return _failed_screening_items(articles, route_name, str(exc))
 
@@ -223,6 +223,9 @@ class KimiClient:
             return _failed_screening_items(articles, route_name, "unexpected_output_type")
 
         logger.info("%s screening returned %d rows", route_name, len(result))
+        if len(result) != len(articles):
+            logger.error("%s screening returned %d rows for %d articles", route_name, len(result), len(articles))
+            return _failed_screening_items(articles, route_name, "incomplete_output")
         return result
 
     async def screen_articles(self, articles: list[dict]) -> list[dict]:
@@ -266,14 +269,14 @@ class KimiClient:
 
         try:
             raw = await self._call_analysis_api(messages)
-        except (APITimeoutError, APIConnectionError, APIError) as exc:
+        except Exception as exc:
             logger.error("Analysis API failed after retries: %s", exc)
-            return {"date": date_str, "core_arguments": [], "source_links": []}
+            raise RuntimeError("Analysis API failed") from exc
 
         result = _extract_json(raw)
-        if result is None:
+        if not isinstance(result, dict) or not isinstance(result.get("core_arguments"), list):
             logger.error("Failed to parse analysis output: %s", raw[:500])
-            return {"date": date_str, "core_arguments": [], "source_links": []}
+            raise RuntimeError("Analysis returned invalid JSON shape")
 
         logger.info("Analysis produced %d core arguments", len(result.get("core_arguments", [])))
         return result
