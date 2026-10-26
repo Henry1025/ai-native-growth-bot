@@ -32,13 +32,14 @@ jobs:
 
       - name: Run AI News Bot
         env:
-          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_DOC_TOKEN: ${{ secrets.FEISHU_DOC_TOKEN }}
           FEISHU_SHEET_TOKEN: ${{ secrets.FEISHU_SHEET_TOKEN }}
-          SCREENING_MODEL: kimi-k2.6
-          ANALYSIS_MODEL: kimi-k2.6
+          SCREENING_MODEL: deepseek-flash
+          ANALYSIS_MODEL: deepseek-v4-pro
+          ANALYSIS_REASONING_EFFORT: high
         run: python src/main.py
 
       - name: Preserve recovery inputs

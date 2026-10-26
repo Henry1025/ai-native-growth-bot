@@ -20,7 +20,7 @@ load_dotenv(ROOT / ".env")
 
 from config.settings import settings
 from src.fetcher.rss_fetcher import fetch_all
-from src.llm.kimi_client import KimiClient
+from src.llm.deepseek_client import DeepSeekClient
 from src.output.feishu_writer import FeishuWriter
 from src.processor.dedup import dedup_articles
 from src.processor.deep_analysis import generate_report
@@ -60,17 +60,18 @@ async def run():
     articles = dedup_articles(articles)
     archive("articles", report_date, articles)
 
-    kimi = KimiClient(
-        api_key=settings.moonshot_api_key,
-        base_url=settings.moonshot_base_url,
+    deepseek = DeepSeekClient(
+        api_key=settings.deepseek_api_key,
+        base_url=settings.deepseek_base_url,
         screening_model=settings.screening_model,
         analysis_model=settings.analysis_model,
-        screening_max_completion_tokens=settings.screening_max_completion_tokens,
-        analysis_max_completion_tokens=settings.analysis_max_completion_tokens,
-        timeout_seconds=settings.kimi_timeout_seconds,
+        analysis_reasoning_effort=settings.analysis_reasoning_effort,
+        screening_max_tokens=settings.screening_max_tokens,
+        analysis_max_tokens=settings.analysis_max_tokens,
+        timeout_seconds=settings.deepseek_timeout_seconds,
     )
     screened = await screen_articles(
-        kimi,
+        deepseek,
         articles,
         batch_size=settings.screening_batch_size,
     )
@@ -112,7 +113,7 @@ async def run():
         return
 
     report_data = await generate_report(
-        kimi,
+        deepseek,
         screened,
         articles,
         report_date=report_date,

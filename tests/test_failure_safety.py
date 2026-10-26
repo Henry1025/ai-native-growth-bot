@@ -5,23 +5,42 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-for key in ('MOONSHOT_API_KEY', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET'):
+for key in ('DEEPSEEK_API_KEY', 'FEISHU_APP_ID', 'FEISHU_APP_SECRET'):
     os.environ.setdefault(key, 'test')
 
 import httpx
-from src.llm.kimi_client import KimiClient, _is_retryable_error
+from src.llm.deepseek_client import DeepSeekClient, _is_retryable_error
 from src.output.feishu_writer import FeishuWriter
 from src import main, backfill
 
 class FailureSafetyTests(unittest.IsolatedAsyncioTestCase):
     def client(self):
-        return KimiClient('test', 'https://api.moonshot.cn/v1', 'kimi-k2.6', 'kimi-k2.6')
+        return DeepSeekClient('test', 'https://api.deepseek.com', 'deepseek-flash', 'deepseek-v4-pro')
 
     async def test_missing_screening_rows_are_failures(self):
         client = self.client()
         client._call_screening_api = AsyncMock(return_value='[]')
         result = await client.screen_articles([{'url': 'https://example.com', 'title': 'news'}])
         self.assertEqual(result[0]['screening_status'], 'failed')
+
+    async def test_deepseek_request_modes_are_explicit(self):
+        client = self.client()
+        client._collect_stream_text = AsyncMock(return_value='{}')
+
+        await client._call_screening_api([{'role': 'user', 'content': 'json'}])
+        screening_args = client._collect_stream_text.await_args.kwargs
+        self.assertEqual(screening_args['model'], 'deepseek-flash')
+        self.assertEqual(screening_args['max_tokens'], 8192)
+        self.assertEqual(screening_args['extra_body'], {'thinking': {'type': 'disabled'}})
+        self.assertNotIn('reasoning_effort', screening_args)
+
+        await client._call_analysis_api([{'role': 'user', 'content': 'json'}])
+        analysis_args = client._collect_stream_text.await_args.kwargs
+        self.assertEqual(analysis_args['model'], 'deepseek-v4-pro')
+        self.assertEqual(analysis_args['max_tokens'], 16384)
+        self.assertEqual(analysis_args['reasoning_effort'], 'high')
+        self.assertEqual(analysis_args['response_format'], {'type': 'json_object'})
+        self.assertEqual(analysis_args['extra_body'], {'thinking': {'type': 'enabled'}})
 
     async def test_wrong_urls_are_failures(self):
         client = self.client()

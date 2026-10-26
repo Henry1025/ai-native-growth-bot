@@ -1,4 +1,4 @@
-"""Moonshot/Kimi client wrapper with retry and JSON extraction helpers."""
+"""DeepSeek client wrapper with retry and JSON extraction helpers."""
 
 import json
 import logging
@@ -110,15 +110,16 @@ def _failed_screening_items(articles: list[dict], route_name: str, reason: str) 
     return failed_items
 
 
-class KimiClient:
+class DeepSeekClient:
     def __init__(
         self,
         api_key: str,
         base_url: str,
         screening_model: str,
         analysis_model: str,
-        screening_max_completion_tokens: int = 8192,
-        analysis_max_completion_tokens: int = 16384,
+        analysis_reasoning_effort: str = "high",
+        screening_max_tokens: int = 8192,
+        analysis_max_tokens: int = 16384,
         timeout_seconds: float = 240,
     ):
         self._client = AsyncOpenAI(
@@ -128,8 +129,9 @@ class KimiClient:
         )
         self.screening_model = screening_model
         self.analysis_model = analysis_model
-        self.screening_max_completion_tokens = screening_max_completion_tokens
-        self.analysis_max_completion_tokens = analysis_max_completion_tokens
+        self.analysis_reasoning_effort = analysis_reasoning_effort
+        self.screening_max_tokens = screening_max_tokens
+        self.analysis_max_tokens = analysis_max_tokens
         self.timeout_seconds = timeout_seconds
         self._screening_prompt = (PROMPTS_DIR / "screening.txt").read_text(encoding="utf-8")
         self._startup_screening_prompt = (PROMPTS_DIR / "screening_startup.txt").read_text(encoding="utf-8")
@@ -138,9 +140,7 @@ class KimiClient:
         )
 
     @staticmethod
-    def _thinking_body(model: str, *, disabled: bool) -> dict | None:
-        if not model.startswith("kimi-k2"):
-            return None
+    def _thinking_body(*, disabled: bool) -> dict:
         return {"thinking": {"type": "disabled" if disabled else "enabled"}}
 
     async def _collect_stream_text(self, **kwargs) -> str:
@@ -165,10 +165,10 @@ class KimiClient:
         return await self._collect_stream_text(
             model=self.screening_model,
             messages=messages,
-            max_completion_tokens=self.screening_max_completion_tokens,
+            max_tokens=self.screening_max_tokens,
             stream=True,
             timeout=self.timeout_seconds,
-            extra_body=self._thinking_body(self.screening_model, disabled=True),
+            extra_body=self._thinking_body(disabled=True),
         )
 
     @retry(
@@ -182,10 +182,12 @@ class KimiClient:
         return await self._collect_stream_text(
             model=self.analysis_model,
             messages=messages,
-            max_completion_tokens=self.analysis_max_completion_tokens,
+            max_tokens=self.analysis_max_tokens,
             stream=True,
             timeout=self.timeout_seconds,
-            extra_body=self._thinking_body(self.analysis_model, disabled=False),
+            reasoning_effort=self.analysis_reasoning_effort,
+            response_format={"type": "json_object"},
+            extra_body=self._thinking_body(disabled=False),
         )
 
     async def _screen_articles_with_prompt(
@@ -202,7 +204,7 @@ class KimiClient:
             {"role": "user", "content": json.dumps(articles, ensure_ascii=False, indent=2)},
         ]
         logger.info(
-            "Calling Kimi %s screening for %d articles with model %s",
+            "Calling DeepSeek %s screening for %d articles with model %s",
             route_name,
             len(articles),
             self.screening_model,
@@ -268,7 +270,7 @@ class KimiClient:
                 "content": f"今日日期：{date_str}\n\n" + json.dumps(enriched_input, ensure_ascii=False, indent=2),
             },
         ]
-        logger.info("Calling Kimi analysis for %d articles with model %s", len(screened), self.analysis_model)
+        logger.info("Calling DeepSeek analysis for %d articles with model %s", len(screened), self.analysis_model)
 
         try:
             raw = await self._call_analysis_api(messages)

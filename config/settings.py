@@ -3,13 +3,14 @@ from pydantic import Field
 
 
 class Settings(BaseSettings):
-    # Moonshot / Kimi API
-    moonshot_api_key: str = Field(..., env="MOONSHOT_API_KEY")
-    moonshot_base_url: str = "https://api.moonshot.cn/v1"
+    # DeepSeek API (OpenAI-compatible)
+    deepseek_api_key: str = Field(..., env="DEEPSEEK_API_KEY")
+    deepseek_base_url: str = "https://api.deepseek.com"
 
     # Model names
-    screening_model: str = "kimi-k2.6"
-    analysis_model: str = "kimi-k2.6"
+    screening_model: str = "deepseek-flash"
+    analysis_model: str = "deepseek-v4-pro"
+    analysis_reasoning_effort: str = "high"
 
     # Feishu / Lark
     feishu_app_id: str = Field(..., env="FEISHU_APP_ID")
@@ -22,9 +23,9 @@ class Settings(BaseSettings):
     recent_hours: int = 24               # 只取最近 N 小时的文章
     rss_lookback_hours: int = 72         # RSS 抓取回看窗口，用于补偿信息源延迟更新
     screening_batch_size: int = 5        # 为完整摘要预留输出预算，避免批量结果截断
-    screening_max_completion_tokens: int = 8192
-    analysis_max_completion_tokens: int = 16384
-    kimi_timeout_seconds: float = 240
+    screening_max_tokens: int = 8192
+    analysis_max_tokens: int = 16384
+    deepseek_timeout_seconds: float = 240
 
     class Config:
         env_file = ".env"

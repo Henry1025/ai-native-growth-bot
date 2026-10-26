@@ -1,12 +1,12 @@
 """
-调用 Kimi K2.6 初筛文章，输出结构化 JSON
+调用 DeepSeek 初筛文章，输出结构化 JSON
 支持分批处理，防止单次请求 token 过多
 """
 import asyncio
 import logging
 import re
 
-from ..llm.kimi_client import KimiClient
+from ..llm.deepseek_client import DeepSeekClient
 
 logger = logging.getLogger(__name__)
 
@@ -138,12 +138,12 @@ def _attach_original_metadata(screened: list[dict], articles: list[dict]) -> lis
 
 
 async def screen_articles(
-    client: KimiClient,
+    client: DeepSeekClient,
     articles: list[dict],
     batch_size: int = 20,
 ) -> list[dict]:
     """
-    分批调用 Kimi 初筛。
+    分批调用 DeepSeek 初筛。
 
     初筛采用两条 OR 关系链路：
     1. legacy：原有 AI 增长/广告平台/组织/AI 公司增长逻辑
@@ -157,7 +157,7 @@ async def screen_articles(
     batches = list(_batch(articles, batch_size))
     logger.info("开始双链路初筛，共 %d 篇，分 %d 批处理", len(articles), len(batches))
 
-    # 限制并发数，防止触发 Moonshot API 限频
+    # 限制并发数，防止触发 DeepSeek API 限频
     semaphore = asyncio.Semaphore(2)
 
     async def _screen_legacy_with_limit(batch):

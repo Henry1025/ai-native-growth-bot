@@ -1,17 +1,17 @@
 """
-调用 Kimi 2.5 对初筛后的文章做深度分析，生成结构化 JSON 日报
+调用 DeepSeek 对初筛后的文章做深度分析，生成结构化 JSON 日报
 """
 import logging
 from datetime import date
 
-from ..llm.kimi_client import KimiClient
+from ..llm.deepseek_client import DeepSeekClient
 from .screening import is_report_relevant
 
 logger = logging.getLogger(__name__)
 
 
 async def generate_report(
-    client: KimiClient,
+    client: DeepSeekClient,
     screened: list[dict],
     original_articles: list[dict],
     report_date: date | None = None,
@@ -20,7 +20,7 @@ async def generate_report(
     生成日报，返回结构化 JSON dict。
 
     Args:
-        client: KimiClient 实例
+        client: DeepSeekClient 实例
         screened: 初筛后的文章列表，包含 url, title, summary, tag
         original_articles: 原始抓取的文章列表，包含完整 content
         report_date: 日报日期，默认今天

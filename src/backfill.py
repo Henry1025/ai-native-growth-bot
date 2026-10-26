@@ -22,7 +22,7 @@ load_dotenv(ROOT / ".env")
 
 from config.settings import settings
 from src.fetcher.rss_fetcher import fetch_all_between
-from src.llm.kimi_client import KimiClient
+from src.llm.deepseek_client import DeepSeekClient
 from src.output.feishu_writer import FeishuWriter
 from src.processor.dedup import dedup_articles
 from src.processor.deep_analysis import generate_report
@@ -78,7 +78,7 @@ def _window_for_report(report_date: date, tz_name: str, run_hour: int) -> tuple[
 
 async def _run_for_date(
     report_date: date,
-    kimi: KimiClient,
+    deepseek: DeepSeekClient,
     writer: FeishuWriter,
     tz_name: str,
     run_hour: int,
@@ -107,7 +107,7 @@ async def _run_for_date(
 
     articles = dedup_articles(articles)
     screened = await screen_articles(
-        kimi,
+        deepseek,
         articles,
         batch_size=settings.screening_batch_size,
     )
@@ -130,7 +130,7 @@ async def _run_for_date(
         }
 
     report_data = await generate_report(
-        kimi,
+        deepseek,
         screened,
         articles,
         report_date=report_date,
@@ -157,14 +157,15 @@ async def main():
     if start_date > end_date:
         raise ValueError("start-date 不能晚于 end-date")
 
-    kimi = KimiClient(
-        api_key=settings.moonshot_api_key,
-        base_url=settings.moonshot_base_url,
+    deepseek = DeepSeekClient(
+        api_key=settings.deepseek_api_key,
+        base_url=settings.deepseek_base_url,
         screening_model=settings.screening_model,
         analysis_model=settings.analysis_model,
-        screening_max_completion_tokens=settings.screening_max_completion_tokens,
-        analysis_max_completion_tokens=settings.analysis_max_completion_tokens,
-        timeout_seconds=settings.kimi_timeout_seconds,
+        analysis_reasoning_effort=settings.analysis_reasoning_effort,
+        screening_max_tokens=settings.screening_max_tokens,
+        analysis_max_tokens=settings.analysis_max_tokens,
+        timeout_seconds=settings.deepseek_timeout_seconds,
     )
     writer = FeishuWriter(
         app_id=settings.feishu_app_id,
@@ -175,7 +176,7 @@ async def main():
     for report_date in _iter_dates(start_date, end_date):
         summary = await _run_for_date(
             report_date,
-            kimi,
+            deepseek,
             writer,
             tz_name=args.timezone,
             run_hour=args.run_hour,
