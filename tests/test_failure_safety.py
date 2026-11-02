@@ -22,6 +22,7 @@ class FailureSafetyTests(unittest.IsolatedAsyncioTestCase):
         client._call_screening_api = AsyncMock(return_value='[]')
         result = await client.screen_articles([{'url': 'https://example.com', 'title': 'news'}])
         self.assertEqual(result[0]['screening_status'], 'failed')
+        self.assertEqual(client._call_screening_api.await_count, 2)
 
     async def test_deepseek_request_modes_are_explicit(self):
         client = self.client()
@@ -47,6 +48,7 @@ class FailureSafetyTests(unittest.IsolatedAsyncioTestCase):
         client._call_screening_api = AsyncMock(return_value='[{"url":"https://wrong.example"}]')
         result = await client.screen_articles([{'url': 'https://example.com'}])
         self.assertEqual(result[0]['screening_status'], 'failed')
+        self.assertEqual(result[0]['screening_error'], 'incomplete_output_after_retry')
 
     async def test_analysis_invalid_or_empty_never_succeeds(self):
         client = self.client()

@@ -165,6 +165,7 @@ tag 为不相关时，score 必须为 1 或 2；明显不相关用 1，方向沾
 
 每个 JSON 对象必须包含：
 
+- article_id：原样复制输入中的 article_id；不得省略、修改或自行生成
 - url：原始链接
 - title：原文标题
 - tag：AI_NATIVE_GROWTH_STRATEGY / AI_GROWTH_CASE / 不相关
@@ -204,6 +205,8 @@ tag 为不相关时，score 必须为 1 或 2；明显不相关用 1，方向沾
 
 ## 输出要求
 最终输出必须是且仅是严格 JSON 数组。
+每篇输入文章必须恰好对应一个输出对象，并保持输入顺序。
+article_id 和 url 必须逐字符照抄输入值，不得改写、补全、规范化或替换。
 不要输出 Markdown。
 不要输出解释。
 不要使用 ```json 代码块。
@@ -212,6 +215,7 @@ tag 为不相关时，score 必须为 1 或 2；明显不相关用 1，方向沾
 ## 输出示例
 [
   {
+    "article_id": "article-001",
     "url": "https://techcrunch.com/example/doordash-ai-merchant-onboarding",
     "title": "DoorDash adds AI tools to speed up merchant onboarding and edit photos of dishes",
     "tag": "AI_GROWTH_CASE",
@@ -222,6 +226,7 @@ tag 为不相关时，score 必须为 1 或 2；明显不相关用 1，方向沾
     "confidence": "high"
   },
   {
+    "article_id": "article-002",
     "url": "https://example.com/brand-ai-overviews-visibility",
     "title": "Brands start tracking visibility in ChatGPT and Google AI Overviews",
     "tag": "AI_NATIVE_GROWTH_STRATEGY",
@@ -232,6 +237,7 @@ tag 为不相关时，score 必须为 1 或 2；明显不相关用 1，方向沾
     "confidence": "medium"
   },
   {
+    "article_id": "article-003",
     "url": "https://example.com/new-open-source-model",
     "title": "A new open-source reasoning model tops benchmark",
     "tag": "不相关",

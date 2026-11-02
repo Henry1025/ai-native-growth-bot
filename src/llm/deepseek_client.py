@@ -190,6 +190,93 @@ class DeepSeekClient:
             extra_body=self._thinking_body(disabled=False),
         )
 
+    @staticmethod
+    def _add_article_ids(articles: list[dict]) -> list[dict]:
+        """Add short stable IDs so model output never needs to be joined by URL."""
+        payload: list[dict] = []
+        for index, article in enumerate(articles, start=1):
+            item = dict(article)
+            item["article_id"] = f"article-{index:03d}"
+            payload.append(item)
+        return payload
+
+    @staticmethod
+    def _parse_screening_rows(
+        raw: str,
+        payload: list[dict],
+        route_name: str,
+    ) -> tuple[dict[str, dict], list[str]]:
+        """Salvage valid rows and return IDs that still need an individual retry."""
+        result = _extract_json(raw)
+        expected_by_id = {item["article_id"]: item for item in payload}
+        expected_id_by_url = {item.get("url", ""): item["article_id"] for item in payload}
+
+        if not isinstance(result, list):
+            logger.error(
+                "%s screening returned %s instead of a JSON array",
+                route_name,
+                type(result).__name__ if result is not None else "unparseable output",
+            )
+            return {}, list(expected_by_id)
+
+        matched: dict[str, dict] = {}
+        invalid_rows = 0
+        unknown_references: list[str] = []
+
+        for item in result:
+            if not isinstance(item, dict):
+                invalid_rows += 1
+                continue
+
+            article_id = str(item.get("article_id", "")).strip()
+            if article_id not in expected_by_id or article_id in matched:
+                article_id = expected_id_by_url.get(item.get("url", ""), "")
+
+            if not article_id or article_id in matched:
+                unknown_references.append(
+                    str(item.get("article_id") or item.get("url") or "<missing reference>")
+                )
+                continue
+
+            original = expected_by_id[article_id]
+            normalized = dict(item)
+            normalized.pop("article_id", None)
+            # The model judges content; source identity always comes from trusted RSS input.
+            normalized["url"] = original.get("url", "")
+            normalized["title"] = original.get("title", "")
+            matched[article_id] = normalized
+
+        missing_ids = [article_id for article_id in expected_by_id if article_id not in matched]
+        if missing_ids or invalid_rows or unknown_references or len(result) != len(payload):
+            logger.warning(
+                "%s screening mismatch: input=%d output=%d matched=%d missing_ids=%s "
+                "invalid_rows=%d unknown_references=%s",
+                route_name,
+                len(payload),
+                len(result),
+                len(matched),
+                missing_ids,
+                invalid_rows,
+                unknown_references[:5],
+            )
+        else:
+            logger.info("%s screening returned %d valid rows", route_name, len(matched))
+
+        return matched, missing_ids
+
+    async def _request_screening_rows(
+        self,
+        payload: list[dict],
+        prompt: str,
+        route_name: str,
+    ) -> tuple[dict[str, dict], list[str]]:
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False, indent=2)},
+        ]
+        raw = await self._call_screening_api(messages)
+        return self._parse_screening_rows(raw, payload, route_name)
+
     async def _screen_articles_with_prompt(
         self,
         articles: list[dict],
@@ -199,10 +286,7 @@ class DeepSeekClient:
         if not articles:
             return []
 
-        messages = [
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": json.dumps(articles, ensure_ascii=False, indent=2)},
-        ]
+        payload = self._add_article_ids(articles)
         logger.info(
             "Calling DeepSeek %s screening for %d articles with model %s",
             route_name,
@@ -211,27 +295,48 @@ class DeepSeekClient:
         )
 
         try:
-            raw = await self._call_screening_api(messages)
+            matched, missing_ids = await self._request_screening_rows(payload, prompt, route_name)
         except Exception as exc:
             logger.error("%s screening API failed after retries: %s", route_name, exc)
             return _failed_screening_items(articles, route_name, str(exc))
 
-        result = _extract_json(raw)
-        if result is None:
-            logger.error("Failed to parse %s screening output: %s", route_name, raw[:500])
-            return _failed_screening_items(articles, route_name, "parse_error")
+        if missing_ids:
+            logger.warning(
+                "%s screening will retry %d missing/invalid articles individually: %s",
+                route_name,
+                len(missing_ids),
+                missing_ids,
+            )
 
-        if not isinstance(result, list):
-            logger.error("Unexpected %s screening output type: %s", route_name, type(result).__name__)
-            return _failed_screening_items(articles, route_name, "unexpected_output_type")
+        failed_by_id: dict[str, dict] = {}
+        payload_by_id = {item["article_id"]: item for item in payload}
+        for article_id in missing_ids:
+            retry_payload = [payload_by_id[article_id]]
+            try:
+                retry_matched, retry_missing = await self._request_screening_rows(
+                    retry_payload,
+                    prompt,
+                    f"{route_name}:retry:{article_id}",
+                )
+            except Exception as exc:
+                logger.error("%s individual retry failed: %s", article_id, exc)
+                failed_by_id[article_id] = _failed_screening_items(
+                    [payload_by_id[article_id]], route_name, str(exc)
+                )[0]
+                continue
 
-        logger.info("%s screening returned %d rows", route_name, len(result))
-        if (len(result) != len(articles)
-                or any(not isinstance(item, dict) for item in result)
-                or {item.get('url') for item in result} != {item.get('url') for item in articles}):
-            logger.error("%s screening returned %d rows for %d articles", route_name, len(result), len(articles))
-            return _failed_screening_items(articles, route_name, "incomplete_output")
-        return result
+            if article_id in retry_matched and not retry_missing:
+                matched[article_id] = retry_matched[article_id]
+            else:
+                failed_by_id[article_id] = _failed_screening_items(
+                    [payload_by_id[article_id]], route_name, "incomplete_output_after_retry"
+                )[0]
+
+        ordered_results: list[dict] = []
+        for item in payload:
+            article_id = item["article_id"]
+            ordered_results.append(matched.get(article_id) or failed_by_id[article_id])
+        return ordered_results
 
     async def screen_articles(self, articles: list[dict]) -> list[dict]:
         return await self._screen_articles_with_prompt(
